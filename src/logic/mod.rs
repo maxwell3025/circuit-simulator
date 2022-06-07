@@ -1,1 +1,1 @@
-pub mod chip;
+pub mod gate;
