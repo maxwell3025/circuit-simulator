@@ -1,81 +1,41 @@
-use std::collections::HashMap;
+use std::collections::*;
 use std::rc::*;
 use std::cell::*;
 
-use nalgebra::Matrix2;
 use nalgebra::geometry::*;
-use nalgebra::linalg::*;
 
-pub struct NodeIn{
-    value: Weak<RefCell<NodeOut>>
-}
-
-impl NodeIn{
-    pub fn read(&self) -> bool{
-        match self.value.upgrade(){
-            None =>{
-                false
-            }
-            Some(x) => {
-                x.borrow().value
-            }
-        }
-    }
-}
-
-pub struct NodeOut{
-    buffer: bool,
-    value: bool
-}
-
-struct ComponentNodeIn{
-    node: Rc<RefCell<NodeIn>>,
-    pos: Point2<i32>
-}
-
-impl ComponentNodeIn{
-    pub fn new(node: Rc<RefCell<NodeIn>>, pos: Point2<i32>) -> Self{
-        ComponentNodeIn {node: node, pos: pos}
-    }
-}
-
-struct ComponentNodeOut{
-    node: Rc<RefCell<NodeOut>>,
-    pos: Point2<i32>
-}
-
-impl ComponentNodeOut{
-    pub fn new(node: Rc<RefCell<NodeOut>>, pos: Point2<i32>) -> Self{
-        ComponentNodeOut {node: node, pos: pos}
-    }
-}
-
+type SharedBool = Rc<Cell<bool>>;
 pub enum ComponentInternal{
     Buf{
-        input: Rc<RefCell<NodeIn>>,
-        output: Rc<RefCell<NodeOut>>
+        input: Option<SharedBool>,
+        output_buffer: bool,
+        output: SharedBool
     },
     Not{
-        input: Rc<RefCell<NodeIn>>,
-        output: Rc<RefCell<NodeOut>>
+        input: Option<SharedBool>,
+        output_buffer: bool,
+        output: SharedBool
     },
     And{
-        input_1: Rc<RefCell<NodeIn>>,
-        input_2: Rc<RefCell<NodeIn>>,
-        output: Rc<RefCell<NodeOut>>
+        input_1: Option<SharedBool>,
+        input_2: Option<SharedBool>,
+        output_buffer: bool,
+        output: SharedBool
     },
     Or{
-        input_1: Rc<RefCell<NodeIn>>,
-        input_2: Rc<RefCell<NodeIn>>,
-        output: Rc<RefCell<NodeOut>>
+        input_1: Option<SharedBool>,
+        input_2: Option<SharedBool>,
+        output_buffer: bool,
+        output: SharedBool
     },
     Xor{
-        input_1: Rc<RefCell<NodeIn>>,
-        input_2: Rc<RefCell<NodeIn>>,
-        output: Rc<RefCell<NodeOut>>
+        input_1: Option<SharedBool>,
+        input_2: Option<SharedBool>,
+        output_buffer: bool,
+        output: SharedBool
     },
     IC {
-        circuit: Circuit,
+        circuit: Box<Circuit>,
         input_positions: Vec<Point2<i32>>,
         output_positions: Vec<Point2<i32>>
     },
@@ -84,28 +44,31 @@ pub enum ComponentInternal{
 impl ComponentInternal{
     pub fn update(&mut self){
         match self{
-            Self::Buf{input, output}=>{
-                output.borrow_mut().buffer = input.borrow().read();
+            Self::Buf{input, output_buffer, ..}=>{
+                *output_buffer = input.as_ref().map_or(false, |a| a.get());
             },
-            Self::Not{input, output}=>{
-                output.borrow_mut().buffer = !input.borrow().read();   
+            Self::Not{input, output_buffer, ..}=>{
+                *output_buffer = !input.as_ref().map_or(false, |a| a.get());   
             },
-            Self::And{input_1, input_2, output} => {
-                output.borrow_mut().buffer = input_1.borrow().read() & input_2.borrow().read();
+            Self::And{input_1, input_2, output_buffer, ..} => {
+                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) & input_2.as_ref().map_or(false, |a| a.get());
             },
-            Self::Or{input_1, input_2, output} => {
-                output.borrow_mut().buffer = input_1.borrow().read() | input_2.borrow().read();
+            Self::Or{input_1, input_2, output_buffer, ..} => {
+                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) | input_2.as_ref().map_or(false, |a| a.get());
             },
-            Self::Xor{input_1, input_2, output} => {
-                output.borrow_mut().buffer = input_1.borrow().read() ^ input_2.borrow().read();
+            Self::Xor{input_1, input_2, output_buffer, ..} => {
+                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) ^ input_2.as_ref().map_or(false, |a| a.get());
             },
             Self::IC {circuit, ..} => {
-                circuit.update();
+                circuit.tick();
             }
         }
     }
+    pub fn swap(&mut self){
+
+    }
     
-    pub fn inputs(&mut self) -> Vec<Rc<RefCell<NodeIn>>>{
+    pub fn inputs(&mut self) -> Vec<Option<SharedBool>>{
         match self {
             Self::Buf{input, ..}=>{
                 vec![input.clone()]
@@ -123,17 +86,14 @@ impl ComponentInternal{
                 vec![input_1.clone(), input_2.clone()]
             },
             Self::IC {circuit, ..} => {
-                circuit.input_nodes
-                .iter()
-                .enumerate()
-                .filter(|&(index, _)|circuit.pub_input_indices.contains_key(&index))
-                .map(|(_, node)| node.clone())
+                circuit.inputs.iter()
+                .map(|a| a.clone())
                 .collect()
             }
         }
     }
 
-    pub fn outputs(&mut self) -> Vec<Rc<RefCell<NodeOut>>>{
+    pub fn outputs(&mut self) -> Vec<SharedBool>{
         match self {
             Self::Buf{output, ..}=>{
                 vec![output.clone()]
@@ -151,11 +111,8 @@ impl ComponentInternal{
                 vec![output.clone()]
             },
             Self::IC {circuit, ..} => {
-                circuit.output_nodes
-                .iter()
-                .enumerate()
-                .filter(|&(index, _)|circuit.pub_output_indices.contains_key(&index))
-                .map(|(_, node)| node.clone())
+                circuit.outputs.iter()
+                .map(|a| a.clone())
                 .collect()
             }
         }
@@ -173,28 +130,37 @@ struct Component{
 
 struct Circuit{
     //these should contain all nodes in the comonents
-    input_nodes: Vec<Rc<RefCell<NodeIn>>>,
-    output_nodes: Vec<Rc<RefCell<NodeOut>>>,
-    pub_input_indices: HashMap<usize, Point2<i32>>,
-    pub_output_indices: HashMap<usize, Point2<i32>>,
+    nodes: Vec<SharedBool>,
+    inputs: Vec<Option<SharedBool>>,
+    //should be idenstical to inputs, but maps Nones to constant false
+    inputs_internal: Vec<SharedBool>,
+    outputs: Vec<SharedBool>,
     components: Vec<Component>,
+    width: u32,
+    height: u32
 }
 
 impl Circuit{
+    pub fn new(width: u32, height: u32) -> Self{
+        Circuit {
+            nodes: Vec::new(),
+            inputs: Vec::new(),
+            inputs_internal: Vec::new(),
+            outputs: Vec::new(),
+            components: Vec::new(),
+            width: width,
+            height: height
+        }
+    }
+
     pub fn add_component(&mut self, mut component: Component){
-        self.input_nodes.append(&mut component.internal.inputs());
-        self.output_nodes.append(&mut component.internal.outputs());
+        self.nodes.append(&mut component.internal.outputs());
         self.components.push(component);
     }
 
-    pub fn update(&mut self){
+    pub fn tick(&mut self){
         for component in &mut self.components{
             component.internal.update();
-        }
-
-        for node in &mut self.output_nodes{
-            let value = node.borrow().buffer;
-            node.borrow_mut().value = value;
         }
     }
 }
