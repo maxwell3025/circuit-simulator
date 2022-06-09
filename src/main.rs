@@ -2,9 +2,15 @@ extern crate sdl2;
 
 mod gui;
 mod logic;
+use gui::button::Button;
+use gui::user_interface::Component;
 use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::rect::Rect;
+use std::cell::RefCell;
+use std::ops::DerefMut;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gui::*;
@@ -19,13 +25,20 @@ pub fn main() {
         .unwrap();
 
     let mut canvas = window.into_canvas().build().unwrap();
-    canvas.set_draw_color(Color::RGB(255, 255, 255));
-    canvas.clear();
-    canvas.present();
+
+    let mut root_component = Button::new(
+        Rect::new(0,0,100,100), 
+        Color::RED,
+        Color::WHITE);
+
     let mut event_pump = sdl_context.event_pump().unwrap();
     'running: loop {
+        canvas.set_draw_color(Color::BLACK);
         canvas.clear();
+        (root_component.borrow_mut().deref_mut().deref_mut() as &mut dyn Component).update(&mut canvas);
+        
         for event in event_pump.poll_iter() {
+            (root_component.borrow_mut().deref_mut().deref_mut() as &mut dyn Component).handle_events(&event);
             match event {
                 Event::Quit {..} |
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
