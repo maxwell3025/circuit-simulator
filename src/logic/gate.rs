@@ -1,31 +1,7 @@
 use nalgebra::Complex;
 
-#[derive(Clone, Copy)]
-enum Direction{
-    Up,
-    Down,
-    Left,
-    Right,
-}
+use super::util::Direction;
 
-impl Direction{
-    pub fn left(&self) -> Direction{
-        match self{
-            Self::Up => Self::Left,
-            Self::Left => Self::Down,
-            Self::Down => Self::Right,
-            Self::Right => Self::Up,
-        }
-    }
-    pub fn right(&self) -> Direction{
-        match self{
-            Self::Up => Self::Right,
-            Self::Left => Self::Up,
-            Self::Down => Self::Left,
-            Self::Right => Self::Down,
-        }
-    }
-}
 #[derive(Clone, Copy)]
 enum Tile{
     Blank,
@@ -75,18 +51,18 @@ impl Tile{
             _ => None,
         }
     }
-    
+   
     pub fn direction_mut(&mut self) -> Option<&mut Direction>{
         match self {
-            Self::Buffer{direction, ..} | 
-            Self::Not{direction, ..} | 
-            Self::And{direction, ..} | 
-            Self::Or{direction, ..} | 
+            Self::Buffer{direction, ..} |
+            Self::Not{direction, ..} |
+            Self::And{direction, ..} |
+            Self::Or{direction, ..} |
             Self::Xor{direction, ..} => Some(direction),
             _ => None,
         }
     }
-    
+   
     pub fn power(&self) -> Option<&bool>{
         match self {
             Self::Buffer{output, ..} |
@@ -128,34 +104,34 @@ impl Circuit{
                     Tile::Buffer { direction, ..} => {
                         let signal = self.get_adj_power(x, y, direction);
                         if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
-                           *output = signal; 
+                           *output = signal;
                         }
                     }
                     Tile::Not { direction, ..} => {
                         let signal = self.get_adj_power(x, y, direction);
                         if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
-                           *output = !signal; 
+                           *output = !signal;
                         }
                     }
                     Tile::And{ direction, ..} => {
                         let signal_left = self.get_adj_power(x, y, direction.left());
                         let signal_right = self.get_adj_power(x, y, direction.right());
                         if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
-                           *output = signal_left & signal_right; 
+                           *output = signal_left & signal_right;
                         }
                     }
                     Tile::Or{ direction, ..} => {
                         let signal_left = self.get_adj_power(x, y, direction.left());
                         let signal_right = self.get_adj_power(x, y, direction.right());
                         if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
-                           *output = signal_left | signal_right; 
+                           *output = signal_left | signal_right;
                         }
                     }
                     Tile::Xor{ direction, ..} => {
                         let signal_left = self.get_adj_power(x, y, direction.left());
                         let signal_right = self.get_adj_power(x, y, direction.right());
                         if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
-                           *output = signal_left ^ signal_right; 
+                           *output = signal_left ^ signal_right;
                         }
                     }
                     _ => {}
@@ -189,10 +165,10 @@ impl Circuit{
             }
         }
     }
-        
+       
     fn get_adj_power(&self, x: i32, y: i32, face: Direction) -> bool{
         match face{
-            Direction::Up => self.get_power(x, y+1, Direction::Down), 
+            Direction::Up => self.get_power(x, y+1, Direction::Down),
             Direction::Down => self.get_power(x, y-1, Direction::Up),
             Direction::Left => self.get_power(x-1, y, Direction::Right),
             Direction::Right => self.get_power(x+1, y, Direction::Left),
