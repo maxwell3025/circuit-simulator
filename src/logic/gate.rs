@@ -1,166 +1,208 @@
-use std::collections::*;
-use std::rc::*;
-use std::cell::*;
+use nalgebra::Complex;
 
-use nalgebra::geometry::*;
+#[derive(Clone, Copy)]
+enum Direction{
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
-type SharedBool = Rc<Cell<bool>>;
-pub enum ComponentInternal{
-    Buf{
-        input: Option<SharedBool>,
-        output_buffer: bool,
-        output: SharedBool
+impl Direction{
+    pub fn left(&self) -> Direction{
+        match self{
+            Self::Up => Self::Left,
+            Self::Left => Self::Down,
+            Self::Down => Self::Right,
+            Self::Right => Self::Up,
+        }
+    }
+    pub fn right(&self) -> Direction{
+        match self{
+            Self::Up => Self::Right,
+            Self::Left => Self::Up,
+            Self::Down => Self::Left,
+            Self::Right => Self::Down,
+        }
+    }
+}
+#[derive(Clone, Copy)]
+enum Tile{
+    Blank,
+    Wire{
+        power: bool,
+    },
+    Cross{
+        x_power: bool,
+        y_power: bool,
+    },
+    Buffer{
+        direction: Direction,
+        output: bool,
     },
     Not{
-        input: Option<SharedBool>,
-        output_buffer: bool,
-        output: SharedBool
+        direction: Direction,
+        output: bool,
     },
     And{
-        input_1: Option<SharedBool>,
-        input_2: Option<SharedBool>,
-        output_buffer: bool,
-        output: SharedBool
+        direction: Direction,
+        output: bool,
     },
     Or{
-        input_1: Option<SharedBool>,
-        input_2: Option<SharedBool>,
-        output_buffer: bool,
-        output: SharedBool
+        direction: Direction,
+        output: bool,
     },
     Xor{
-        input_1: Option<SharedBool>,
-        input_2: Option<SharedBool>,
-        output_buffer: bool,
-        output: SharedBool
-    },
-    IC {
-        circuit: Box<Circuit>,
-        input_positions: Vec<Point2<i32>>,
-        output_positions: Vec<Point2<i32>>
+        direction: Direction,
+        output: bool,
     },
 }
 
-impl ComponentInternal{
-    pub fn update(&mut self){
-        match self{
-            Self::Buf{input, output_buffer, ..}=>{
-                *output_buffer = input.as_ref().map_or(false, |a| a.get());
-            },
-            Self::Not{input, output_buffer, ..}=>{
-                *output_buffer = !input.as_ref().map_or(false, |a| a.get());   
-            },
-            Self::And{input_1, input_2, output_buffer, ..} => {
-                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) & input_2.as_ref().map_or(false, |a| a.get());
-            },
-            Self::Or{input_1, input_2, output_buffer, ..} => {
-                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) | input_2.as_ref().map_or(false, |a| a.get());
-            },
-            Self::Xor{input_1, input_2, output_buffer, ..} => {
-                *output_buffer = input_1.as_ref().map_or(false, |a| a.get()) ^ input_2.as_ref().map_or(false, |a| a.get());
-            },
-            Self::IC {circuit, ..} => {
-                circuit.tick();
-            }
-        }
+impl Default for Tile{
+    fn default() -> Self{
+        Tile::Blank
     }
-    pub fn swap(&mut self){
+}
 
+impl Tile{
+    pub fn direction(&self) -> Option<&Direction>{
+        match self {
+            Self::Buffer{direction, ..} |
+            Self::Not{direction, ..} |
+            Self::And{direction, ..} |
+            Self::Or{direction, ..} |
+            Self::Xor{direction, ..} => Some(direction),
+            _ => None,
+        }
     }
     
-    pub fn inputs(&mut self) -> Vec<Option<SharedBool>>{
+    pub fn direction_mut(&mut self) -> Option<&mut Direction>{
         match self {
-            Self::Buf{input, ..}=>{
-                vec![input.clone()]
-            },
-            Self::Not{input, ..}=>{
-                vec![input.clone()]
-            },
-            Self::And{input_1, input_2, ..} => {
-                vec![input_1.clone(), input_2.clone()]
-            },
-            Self::Or{input_1, input_2, ..} => {
-                vec![input_1.clone(), input_2.clone()]
-            },
-            Self::Xor{input_1, input_2, ..} => {
-                vec![input_1.clone(), input_2.clone()]
-            },
-            Self::IC {circuit, ..} => {
-                circuit.inputs.iter()
-                .map(|a| a.clone())
-                .collect()
-            }
+            Self::Buffer{direction, ..} | 
+            Self::Not{direction, ..} | 
+            Self::And{direction, ..} | 
+            Self::Or{direction, ..} | 
+            Self::Xor{direction, ..} => Some(direction),
+            _ => None,
+        }
+    }
+    
+    pub fn power(&self) -> Option<&bool>{
+        match self {
+            Self::Buffer{output, ..} |
+            Self::Not{output, ..} |
+            Self::And{output, ..} |
+            Self::Or{output, ..} |
+            Self::Xor{output, ..} => Some(output),
+            _ => None,
         }
     }
 
-    pub fn outputs(&mut self) -> Vec<SharedBool>{
+    pub fn power_mut(&mut self) -> Option<&mut bool>{
         match self {
-            Self::Buf{output, ..}=>{
-                vec![output.clone()]
-            },
-            Self::Not{output, ..}=>{
-                vec![output.clone()]
-            },
-            Self::And{output, ..} => {
-                vec![output.clone()]
-            },
-            Self::Or{output, ..} => {
-                vec![output.clone()]
-            },
-            Self::Xor{output, ..} => {
-                vec![output.clone()]
-            },
-            Self::IC {circuit, ..} => {
-                circuit.outputs.iter()
-                .map(|a| a.clone())
-                .collect()
-            }
+            Self::Buffer{output, ..} |
+            Self::Not{output, ..} |
+            Self::And{output, ..} |
+            Self::Or{output, ..} |
+            Self::Xor{output, ..} => Some(output),
+            _ => None,
         }
     }
-}
-
-struct Component{
-    internal: ComponentInternal,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    orientation: Isometry2<i32>
 }
 
 struct Circuit{
-    //these should contain all nodes in the comonents
-    nodes: Vec<SharedBool>,
-    inputs: Vec<Option<SharedBool>>,
-    //should be idenstical to inputs, but maps Nones to constant false
-    inputs_internal: Vec<SharedBool>,
-    outputs: Vec<SharedBool>,
-    components: Vec<Component>,
-    width: u32,
-    height: u32
+    tiles: Vec<Tile>,
+    width: usize,
+    height: usize,
 }
 
 impl Circuit{
-    pub fn new(width: u32, height: u32) -> Self{
-        Circuit {
-            nodes: Vec::new(),
-            inputs: Vec::new(),
-            inputs_internal: Vec::new(),
-            outputs: Vec::new(),
-            components: Vec::new(),
-            width: width,
-            height: height
+    pub fn new(width: usize, height: usize) -> Self{
+        Circuit { tiles: vec![Tile::Blank; width*height], width, height}
+    }
+    pub fn update(&mut self){
+        //solve the gates
+        for x in 0..self.width as i32{
+            for y in 0..self.height as i32{
+                match *self.get(x, y).unwrap() {
+                    Tile::Buffer { direction, ..} => {
+                        let signal = self.get_adj_power(x, y, direction);
+                        if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
+                           *output = signal; 
+                        }
+                    }
+                    Tile::Not { direction, ..} => {
+                        let signal = self.get_adj_power(x, y, direction);
+                        if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
+                           *output = !signal; 
+                        }
+                    }
+                    Tile::And{ direction, ..} => {
+                        let signal_left = self.get_adj_power(x, y, direction.left());
+                        let signal_right = self.get_adj_power(x, y, direction.right());
+                        if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
+                           *output = signal_left & signal_right; 
+                        }
+                    }
+                    Tile::Or{ direction, ..} => {
+                        let signal_left = self.get_adj_power(x, y, direction.left());
+                        let signal_right = self.get_adj_power(x, y, direction.right());
+                        if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
+                           *output = signal_left | signal_right; 
+                        }
+                    }
+                    Tile::Xor{ direction, ..} => {
+                        let signal_left = self.get_adj_power(x, y, direction.left());
+                        let signal_right = self.get_adj_power(x, y, direction.right());
+                        if let Tile::Buffer {output, ..} = self.get(x, y).unwrap() {
+                           *output = signal_left ^ signal_right; 
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        //reset wires
+        //set wires in front of gates
+        //flood fill signal across wires
+    }
+
+    fn get_power(&self, x: i32, y: i32, face: Direction) -> bool{
+        if (x<0) | (x>=self.width as i32) | (y<0) | (y>=self.height as i32){
+            false
+        }
+        else{
+            match self.tiles[(x as usize) + (y as usize) * self.width]{
+                Tile::Blank => false,
+                Tile::Buffer { output, .. } => output,
+                Tile::Not { output, .. } => output,
+                Tile::And { output, .. } => output,
+                Tile::Or { output, .. } => output,
+                Tile::Xor { output, .. } => output,
+                Tile::Wire { power } => power,
+                Tile::Cross { x_power, y_power} => {
+                    match face {
+                        Direction::Left | Direction::Right => x_power,
+                        Direction::Up | Direction::Down => y_power,
+                    }
+                },
+            }
         }
     }
-
-    pub fn add_component(&mut self, mut component: Component){
-        self.nodes.append(&mut component.internal.outputs());
-        self.components.push(component);
+        
+    fn get_adj_power(&self, x: i32, y: i32, face: Direction) -> bool{
+        match face{
+            Direction::Up => self.get_power(x, y+1, Direction::Down), 
+            Direction::Down => self.get_power(x, y-1, Direction::Up),
+            Direction::Left => self.get_power(x-1, y, Direction::Right),
+            Direction::Right => self.get_power(x+1, y, Direction::Left),
+        }
     }
-
-    pub fn tick(&mut self){
-        for component in &mut self.components{
-            component.internal.update();
+    fn get(&mut self, x: i32, y: i32) -> Option<&mut Tile>{
+        if (x<0) | (x>=self.width as i32) | (y<0) | (y>=self.height as i32) {
+            None
+        } else {
+            Some(&mut self.tiles[(x as usize)+(y as usize)*self.width])
         }
     }
 }
